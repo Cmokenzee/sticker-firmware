@@ -75,6 +75,14 @@ parameters:
     enum: lrw_region
     help: "Get/Set LoRaWAN region (eu868/us915/au915)."
 
+  - name: last_applied_region
+    type: enum
+    enum: lrw_region
+    default: EU868
+    hidden: true
+    readonly: true
+    help: "Internal - last region applied to LoRaWAN NVM. Maintained by app_lrw."
+
   - name: lrw_network
     type: enum
     enum: lrw_network
