@@ -20,6 +20,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/lorawan/lorawan.h>
 #include <zephyr/random/random.h>
+#include <zephyr/settings/settings.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
 
@@ -49,6 +50,21 @@ LOG_MODULE_REGISTER(app_lrw, LOG_LEVEL_DBG);
 #define REJOIN_BACKOFF_BASE_SEC  60   /* Base backoff time in seconds */
 #define REJOIN_BACKOFF_MAX_SEC   3600 /* Maximum backoff time (1 hour) */
 #define REJOIN_BACKOFF_MULTIPLIER 2   /* Exponential multiplier per attempt */
+
+/* Keys written by Zephyr's LoRaWAN NVM subsystem. Mirror of the set declared
+ * in zephyr/subsys/lorawan/nvm/lorawan_nvm_settings.c:35-43 - must be cleared
+ * together on region change, because a stale MacGroup2 contains the old
+ * LoRaMacRegion and overrides lorawan_set_region() at the next lorawan_start().
+ */
+static const char *const m_lorawan_nvm_keys[] = {
+	"lorawan/nvm/Crypto",
+	"lorawan/nvm/MacGroup1",
+	"lorawan/nvm/MacGroup2",
+	"lorawan/nvm/SecureElement",
+	"lorawan/nvm/RegionGroup1",
+	"lorawan/nvm/RegionGroup2",
+	"lorawan/nvm/ClassB",
+};
 
 static K_THREAD_STACK_DEFINE(m_work_stack, 2048);
 static struct k_work_q m_work_q;
@@ -573,6 +589,42 @@ int app_lrw_init(void)
 	if (!device_is_ready(dev)) {
 		LOG_ERR("Device not ready");
 		return -ENODEV;
+	}
+
+	if (g_app_config.lrw_region != g_app_config.last_applied_region) {
+		LOG_INF("Region changed %d -> %d, clearing LoRaWAN NVM",
+			g_app_config.last_applied_region, g_app_config.lrw_region);
+
+		for (size_t i = 0; i < ARRAY_SIZE(m_lorawan_nvm_keys); i++) {
+			ret = settings_delete(m_lorawan_nvm_keys[i]);
+			if (ret && ret != -ENOENT) {
+				LOG_ERR("Call `settings_delete` failed (%s): %d",
+					m_lorawan_nvm_keys[i], ret);
+				/* Continue - a single leftover key is better than
+				 * bricking the device. Worst case the join fails and
+				 * the user runs `settings reset`.
+				 */
+			}
+		}
+
+		g_app_config.last_applied_region = g_app_config.lrw_region;
+
+		ret = settings_save_one("config/last-applied-region",
+					&g_app_config.last_applied_region,
+					sizeof(g_app_config.last_applied_region));
+		if (ret) {
+			LOG_ERR_CALL_FAILED_INT("settings_save_one", ret);
+		}
+
+		/* Reload the config subtree so m_app_config (private to app_config.c)
+		 * picks up the new last-applied-region we just wrote. Without this,
+		 * a later settings_save() in the same boot would export the stale
+		 * value from m_app_config and undo our bookkeeping.
+		 */
+		ret = settings_load_subtree("config");
+		if (ret) {
+			LOG_ERR_CALL_FAILED_INT("settings_load_subtree", ret);
+		}
 	}
 
 	enum lorawan_region region;
