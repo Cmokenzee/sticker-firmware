@@ -82,14 +82,6 @@ parameters:
     max: 8
     help: "Get/Set US915/AU915 sub-band (1-8, 0 = all channels). Default 2 matches TTN/Helium/ChirpStack."
 
-  - name: last_applied_region
-    type: enum
-    enum: lrw_region
-    default: EU868
-    hidden: true
-    readonly: true
-    help: "Internal - last region applied to LoRaWAN NVM. Maintained by app_lrw."
-
   - name: lrw_network
     type: enum
     enum: lrw_network

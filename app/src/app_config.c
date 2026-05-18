@@ -32,33 +32,9 @@ LOG_MODULE_REGISTER(app_config, LOG_LEVEL_DBG);
 
 struct app_config g_app_config;
 
-static const struct app_config m_app_config_defaults = {
-	.config_version = APP_CONFIG_VERSION,
-	.interval_report = 900,
-	.lrw_sub_band = 2,
-	.last_applied_region = APP_CONFIG_LRW_REGION_EU868,
-	.alarm_temperature_lo = 15.0f,
-	.alarm_temperature_hi = 25.0f,
-	.alarm_temperature_hst = 0.5f,
-	.alarm_humidity_lo = 30.0f,
-	.alarm_humidity_hi = 75.0f,
-	.alarm_humidity_hst = 5.0f,
-	.alarm_pressure_lo = 700.0f,
-	.alarm_pressure_hi = 1060.0f,
-	.alarm_pressure_hst = 10.0f,
-	.alarm_t1_temperature_lo = 15.0f,
-	.alarm_t1_temperature_hi = 25.0f,
-	.alarm_t1_temperature_hst = 0.5f,
-	.alarm_t2_temperature_lo = 15.0f,
-	.alarm_t2_temperature_hi = 25.0f,
-	.alarm_t2_temperature_hst = 0.5f,
-};
-
 static struct app_config m_app_config = {
-	.config_version = APP_CONFIG_VERSION,
 	.interval_report = 900,
 	.lrw_sub_band = 2,
-	.last_applied_region = APP_CONFIG_LRW_REGION_EU868,
 	.alarm_temperature_lo = 15.0f,
 	.alarm_temperature_hi = 25.0f,
 	.alarm_temperature_hst = 0.5f,
@@ -99,8 +75,6 @@ static int h_set(const char *key, size_t len, settings_read_cb read_cb, void *cb
 		}                                                                                  \
 	} while (0)
 
-	SETTINGS_SET("config-version", &m_app_config.config_version,
-		     sizeof(m_app_config.config_version));
 	SETTINGS_SET("secret-key", m_app_config.secret_key, sizeof(m_app_config.secret_key));
 	SETTINGS_SET("serial-number", &m_app_config.serial_number,
 		     sizeof(m_app_config.serial_number));
@@ -116,8 +90,6 @@ static int h_set(const char *key, size_t len, settings_read_cb read_cb, void *cb
 		     sizeof(m_app_config.lrw_region));
 	SETTINGS_SET("lrw-sub-band", &m_app_config.lrw_sub_band,
 		     sizeof(m_app_config.lrw_sub_band));
-	SETTINGS_SET("last-applied-region", &m_app_config.last_applied_region,
-		     sizeof(m_app_config.last_applied_region));
 	SETTINGS_SET("lrw-network", &m_app_config.lrw_network,
 		     sizeof(m_app_config.lrw_network));
 	SETTINGS_SET("lrw-adr", &m_app_config.lrw_adr,
@@ -229,12 +201,6 @@ static int h_commit(void)
 {
 	LOG_DBG("Loaded settings in full");
 
-	if (m_app_config.config_version != APP_CONFIG_VERSION) {
-		LOG_WRN("Config version mismatch (stored=%u, expected=%u), resetting to defaults",
-			m_app_config.config_version, APP_CONFIG_VERSION);
-		m_app_config = m_app_config_defaults;
-	}
-
 	memcpy(&g_app_config, &m_app_config, sizeof(g_app_config));
 	return 0;
 }
@@ -246,8 +212,6 @@ static int h_export(int (*export_func)(const char *name, const void *val, size_t
 		(void)export_func(SETTINGS_PFX "/" _key, _var, _size);                             \
 	} while (0)
 
-	EXPORT_FUNC("config-version", &m_app_config.config_version,
-		    sizeof(m_app_config.config_version));
 	EXPORT_FUNC("secret-key", m_app_config.secret_key, sizeof(m_app_config.secret_key));
 	EXPORT_FUNC("serial-number", &m_app_config.serial_number,
 		    sizeof(m_app_config.serial_number));
@@ -263,8 +227,6 @@ static int h_export(int (*export_func)(const char *name, const void *val, size_t
 		    sizeof(m_app_config.lrw_region));
 	EXPORT_FUNC("lrw-sub-band", &m_app_config.lrw_sub_band,
 		    sizeof(m_app_config.lrw_sub_band));
-	EXPORT_FUNC("last-applied-region", &m_app_config.last_applied_region,
-		    sizeof(m_app_config.last_applied_region));
 	EXPORT_FUNC("lrw-network", &m_app_config.lrw_network,
 		    sizeof(m_app_config.lrw_network));
 	EXPORT_FUNC("lrw-adr", &m_app_config.lrw_adr,
@@ -539,26 +501,6 @@ static void print_lrw_region(const struct shell *shell)
 static void print_lrw_sub_band(const struct shell *shell)
 {
 	shell_print(shell, SETTINGS_PFX " lrw-sub-band %d", m_app_config.lrw_sub_band);
-}
-
-static void print_last_applied_region(const struct shell *shell)
-{
-	const char *str;
-	switch (m_app_config.last_applied_region) {
-	case APP_CONFIG_LRW_REGION_EU868:
-		str = "eu868";
-		break;
-	case APP_CONFIG_LRW_REGION_US915:
-		str = "us915";
-		break;
-	case APP_CONFIG_LRW_REGION_AU915:
-		str = "au915";
-		break;
-	default:
-		str = "unknown";
-		break;
-	}
-	shell_print(shell, SETTINGS_PFX " last-applied-region %s", str);
 }
 
 static void print_lrw_network(const struct shell *shell)
@@ -1189,12 +1131,6 @@ static int cmd_lrw_sub_band(const struct shell *shell, size_t argc, char **argv)
 		       print_lrw_sub_band);
 }
 
-static int cmd_last_applied_region(const struct shell *shell, size_t argc, char **argv)
-{
-	print_last_applied_region(shell);
-	return 0;
-}
-
 static int cmd_lrw_network(const struct shell *shell, size_t argc, char **argv)
 {
 	if (argc == 1) {
@@ -1749,10 +1685,6 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(lrw-sub-band, NULL,
 	              "Get/Set US915/AU915 sub-band (1-8, 0 = all channels). Default 2 matches TTN/Helium/ChirpStack.",
 	              cmd_lrw_sub_band, 1, 1),
-
-	SHELL_CMD_ARG(last-applied-region, NULL,
-	              "Internal - last region applied to LoRaWAN NVM. Maintained by app_lrw.",
-	              cmd_last_applied_region, 1, 1),
 
 	SHELL_CMD_ARG(lrw-network, NULL,
 	              "Get/Set LoRaWAN network (public/private).",

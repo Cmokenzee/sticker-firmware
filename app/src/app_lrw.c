@@ -51,15 +51,16 @@ LOG_MODULE_REGISTER(app_lrw, LOG_LEVEL_DBG);
 #define REJOIN_BACKOFF_MAX_SEC   3600 /* Maximum backoff time (1 hour) */
 #define REJOIN_BACKOFF_MULTIPLIER 2   /* Exponential multiplier per attempt */
 
-/* Keys written by Zephyr's LoRaWAN NVM subsystem. Mirror of the set declared
- * in zephyr/subsys/lorawan/nvm/lorawan_nvm_settings.c:35-43 — must be cleared
- * together on region change, because a stale MacGroup2 contains the old
- * LoRaMacRegion and overrides lorawan_set_region() at the next lorawan_start(). */
-static const char *const m_lorawan_nvm_keys[] = {
-	"lorawan/nvm/Crypto",
-	"lorawan/nvm/MacGroup1",
+/* Subset of Zephyr's LoRaWAN NVM keys (zephyr/subsys/lorawan/nvm/
+ * lorawan_nvm_settings.c:35-43) cleared on every boot. The freshly-set region
+ * via lorawan_set_region() would otherwise be overridden by
+ * lorawan_nvm_data_restore() inside lorawan_start(), which restores the stale
+ * MacGroup2.Region from NVM. We keep Crypto (DevNonce monotonicity),
+ * MacGroup1, and SecureElement so the device does not look like a fresh
+ * provisioning to the network server. NetworkActivation lives in MacGroup2 →
+ * device joins fresh every boot, which is the intended behaviour. */
+static const char *const m_lorawan_nvm_clear_keys[] = {
 	"lorawan/nvm/MacGroup2",
-	"lorawan/nvm/SecureElement",
 	"lorawan/nvm/RegionGroup1",
 	"lorawan/nvm/RegionGroup2",
 	"lorawan/nvm/ClassB",
@@ -594,13 +595,13 @@ static void send_timer_handler(struct k_timer *timer)
 	k_work_submit_to_queue(&m_work_q, &m_send_work);
 }
 
-static int apply_subband(uint8_t sub_band)
+static int apply_subband(int sub_band)
 {
 	if (sub_band == 0) {
 		return 0;
 	}
-	if (sub_band > 8) {
-		LOG_ERR("Invalid sub-band: %u", sub_band);
+	if (sub_band < 1 || sub_band > 8) {
+		LOG_ERR("Invalid sub-band: %d", sub_band);
 		return -EINVAL;
 	}
 
@@ -618,7 +619,7 @@ static int apply_subband(uint8_t sub_band)
 		return ret;
 	}
 
-	LOG_INF("Applied sub-band %u", sub_band);
+	LOG_INF("Applied sub-band %d", sub_band);
 	return 0;
 }
 
@@ -632,38 +633,13 @@ int app_lrw_init(void)
 		return -ENODEV;
 	}
 
-	if (g_app_config.lrw_region != g_app_config.last_applied_region) {
-		LOG_INF("Region changed %d -> %d, clearing LoRaWAN NVM",
-			g_app_config.last_applied_region, g_app_config.lrw_region);
-
-		for (size_t i = 0; i < ARRAY_SIZE(m_lorawan_nvm_keys); i++) {
-			ret = settings_delete(m_lorawan_nvm_keys[i]);
-			if (ret && ret != -ENOENT) {
-				LOG_ERR("Call `settings_delete` failed (%s): %d",
-					m_lorawan_nvm_keys[i], ret);
-				/* Continue — a single leftover key is better than
-				 * bricking the device. Worst case the join fails
-				 * and the user runs `settings reset`. */
-			}
-		}
-
-		g_app_config.last_applied_region = g_app_config.lrw_region;
-
-		ret = settings_save_one("config/last-applied-region",
-					&g_app_config.last_applied_region,
-					sizeof(g_app_config.last_applied_region));
-		if (ret) {
-			LOG_ERR_CALL_FAILED_INT("settings_save_one", ret);
-		}
-
-		/* Reload the config subtree so m_app_config (private to
-		 * app_config.c) picks up the new last-applied-region we just
-		 * wrote. Without this, a later settings_save() in the same
-		 * boot would export the stale value from m_app_config and undo
-		 * our bookkeeping. */
-		ret = settings_load_subtree("config");
-		if (ret) {
-			LOG_ERR_CALL_FAILED_INT("settings_load_subtree", ret);
+	for (size_t i = 0; i < ARRAY_SIZE(m_lorawan_nvm_clear_keys); i++) {
+		ret = settings_delete(m_lorawan_nvm_clear_keys[i]);
+		if (ret && ret != -ENOENT) {
+			LOG_ERR("Call `settings_delete` failed (%s): %d",
+				m_lorawan_nvm_clear_keys[i], ret);
+			/* Continue — a leftover stale key is better than
+			 * aborting boot. */
 		}
 	}
 
